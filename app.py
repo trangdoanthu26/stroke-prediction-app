@@ -1,90 +1,126 @@
+
 import streamlit as st
 import pandas as pd
-import joblib  # Cần thiết để tải mô hình .joblib
+import joblib
 
-# ----- TẢI MÔ HÌNH ĐÃ ĐƯỢC HUẤN LUYỆN -----
-# Chúng ta không huấn luyện lại mô hình trong app
-# Thay vào đó, chúng ta tải mô hình 'rf_model_on_full_data' mà bạn đã lưu
-# từ file 'mo_hinh_benh.joblib'
+# 1. Load Model
 
-@st.cache_resource  # Streamlit sẽ lưu mô hình vào cache, giúp chạy nhanh hơn
+@st.cache_resource
 def load_model():
-    try:
-        model = joblib.load('mo_hinh_benh_FINAL.joblib')
-        return model
-    except FileNotFoundError:
-        st.error("Lỗi: Không tìm thấy file 'mo_hinh_benh_FINAL.joblib'.")
-        st.error("Vui lòng đảm bảo file mô hình nằm cùng thư mục với app.py.")
-        return None
-    except Exception as e:
-        st.error(f"Lỗi khi tải mô hình: {e}")
-        return None
 
-# Tải mô hình khi ứng dụng khởi động
-model = load_model()
+    model = joblib.load('stroke_model.pkl') 
+    return model
 
-# Chỉ hiển thị giao diện nếu mô hình được tải thành công
-if model is not None:
-    # ----- BẮT ĐẦU GIAO DIỆN WEB STREAMLIT -----
-    st.title('🩺 Ứng dụng Dự đoán Nguy cơ Đột quỵ')
-    st.markdown('***Nhập các thông số của bạn để dự đoán:***')
+try:
+    pipeline = load_model()
+except Exception as e:
+    st.error(f"Lỗi: Không tìm thấy file model. Hãy kiểm tra lại tên file .pkl! Chi tiết: {e}")
+    st.stop()
 
-    # ----- TẠO CÁC Ô NHẬP LIỆU (Thay thế cho new_row_data) -----
-    # Các ô nhập liệu này sẽ lấy thông tin từ người dùng
+# 2. Giao diện Tiêu đề
+st.title("🏥 Dự báo Nguy cơ Đột quỵ")
+st.write("Nhập thông tin sức khỏe để hệ thống AI phân tích nguy cơ.")
+st.write("---")
 
-    # Chúng ta dùng 4 features bạn đã chọn: 'age', 'bmi', 'hypertension', 'heart_disease'
+# 3. Form nhập liệu (Chia 2 cột)
+col1, col2 = st.columns(2)
+
+with col1:
+    # --- GIỚI TÍNH ---
+    st.subheader("Thông tin cá nhân")
+    gender_display = st.selectbox("Giới tính:", ["Nam", "Nữ", "Khác"])
+    # Từ điển quy đổi: Tiếng Việt -> Tiếng Anh (Model hiểu)
+    gender_map = {"Nam": "Male", "Nữ": "Female", "Khác": "Other"}
     
-    # Tạo 2 cột cho gọn gàng
-    col1, col2 = st.columns(2)
+    # --- TUỔI ---
+    age = st.number_input("Tuổi:", min_value=1, max_value=120, value=60)
+    
+    # --- TÌNH TRẠNG HÔN NHÂN ---
+    married_display = st.selectbox("Đã từng kết hôn chưa?", ["Rồi", "Chưa"])
+    married_map = {"Rồi": "Yes", "Chưa": "No"}
+    
+    # --- CÔNG VIỆC ---
+    work_display = st.selectbox("Loại hình công việc:", 
+                                ["Tư nhân / Doanh nghiệp", "Tự kinh doanh", "Nhà nước", "Trẻ nhỏ", "Chưa đi làm"])
+    work_map = {
+        "Tư nhân / Doanh nghiệp": "Private",
+        "Tự kinh doanh": "Self-employed",
+        "Nhà nước": "Govt_job",
+        "Trẻ nhỏ": "children",
+        "Chưa đi làm": "Never_worked"
+    }
 
-    with col1:
-        # Giống 'age': [80]
-        age = st.number_input('Tuổi (Age)', min_value=1.0, max_value=120.0, value=80.0, step=1.0)
+    # --- NƠI Ở ---
+    res_display = st.selectbox("Khu vực sinh sống:", ["Thành thị", "Nông thôn"])
+    res_map = {"Thành thị": "Urban", "Nông thôn": "Rural"}
+
+with col2:
+    st.subheader("Chỉ số sức khỏe")
+    
+    # --- BMI ---
+    bmi = st.number_input("Chỉ số BMI (Cân nặng/Chiều cao²):", value=22.5)
+    
+    # --- ĐƯỜNG HUYẾT ---
+    avg_glucose_level = st.number_input("Đường huyết trung bình (mg/dL):", value=90.0)
+    
+    # --- BỆNH NỀN ---
+    hypertension_display = st.radio("Có bị Cao huyết áp không?", ["Không", "Có"], horizontal=True)
+    hyper_map = {"Không": 0, "Có": 1}
+    
+    heart_display = st.radio("Có bệnh Tim mạch không?", ["Không", "Có"], horizontal=True)
+    heart_map = {"Không": 0, "Có": 1}
+    
+    # --- HÚT THUỐC ---
+    smoke_display = st.selectbox("Tình trạng hút thuốc:", 
+                                 ["Chưa bao giờ hút", "Đã bỏ thuốc", "Đang hút thuốc", "Không rõ"])
+    smoke_map = {
+        "Chưa bao giờ hút": "never smoked",
+        "Đã bỏ thuốc": "formerly smoked",
+        "Đang hút thuốc": "smokes",
+        "Không rõ": "Unknown"
+    }
+
+# 4. Xử lý Dự đoán
+st.write("---")
+if st.button("🔍 PHÂN TÍCH NGAY", type="primary"):
+    
+    # Tạo dữ liệu đầu vào (Convert từ Tiếng Việt sang Tiếng Anh)
+    input_data = {
+        'gender': [gender_map[gender_display]],
+        'age': [age],
+        'hypertension': [hyper_map[hypertension_display]],
+        'heart_disease': [heart_map[heart_display]],
+        'ever_married': [married_map[married_display]],
+        'work_type': [work_map[work_display]],
+        'Residence_type': [res_map[res_display]],
+        'avg_glucose_level': [avg_glucose_level],
+        'bmi': [bmi],
+        'smoking_status': [smoke_map[smoke_display]]
+    }
+    
+    df_input = pd.DataFrame(input_data)
+    
+    try:
+        # Dự đoán
+        prediction_prob = pipeline.predict_proba(df_input)
+        stroke_risk = prediction_prob[0][1] # Xác suất bị bệnh
+        risk_percent = stroke_risk * 100
         
-        # Giống 'hypertension': [1] (1=Có, 0=Không)
-        hypertension_text = st.selectbox('Tiền sử tăng huyết áp?', ('Không', 'Có'), index=1)
-        hypertension = 1 if hypertension_text == 'Có' else 0
-
-    with col2:
-        # Giống 'bmi': [50]
-        bmi = st.number_input('Chỉ số BMI', min_value=10.0, max_value=100.0, value=50.0, step=0.1)
-
-        # Giống 'heart_disease': [1] (1=Có, 0=Không)
-        heart_disease_text = st.selectbox('Tiền sử bệnh tim?', ('Không', 'Có'), index=1)
-        heart_disease = 1 if heart_disease_text == 'Có' else 0
-
-    st.markdown('---') # Dòng kẻ ngang
-
-    # ----- NÚT DỰ ĐOÁN -----
-    # Khi người dùng nhấn nút này, chúng ta sẽ chạy phần dự đoán
-    if st.button('Dự đoán Nguy cơ'):
+        # Hiển thị kết quả
+        st.header("📋 KẾT QUẢ DỰ BÁO")
         
-        # 1. Tạo DataFrame (giống 'single_test_row' của bạn)
-        # Lấy dữ liệu từ các ô nhập liệu ở trên
-        new_row_data = {
-            'age': [age],
-            'bmi': [bmi],
-            'hypertension': [hypertension],
-            'heart_disease': [heart_disease]
-        }
-        single_test_row = pd.DataFrame(new_row_data)
-
-        # 2. Dự đoán xác suất (giống code của bạn)
-        # Sử dụng mô hình đã được tải (chính là 'rf_model_on_full_data' của bạn)
-        probability_predictions = model.predict_proba(single_test_row)
+        col_res1, col_res2 = st.columns([1, 2])
         
-        # 3. Lấy xác suất
-        probability_of_disease = probability_predictions[0][1]
-        percentage_of_disease = probability_of_disease * 100
-
-        # 4. Hiển thị kết quả (thay cho lệnh 'print')
-        st.subheader('Kết quả Dự đoán:')
-        st.success(f"Xác suất mắc bệnh là: {probability_of_disease:.4f}")
-        st.success(f"Phần trăm mắc bệnh dự đoán là: {percentage_of_disease:.2f}%")
-
-        if percentage_of_disease > 20:
-             st.warning("Nguy cơ cao. Vui lòng tham khảo ý kiến bác sĩ.", icon="⚠️")
-        elif percentage_of_disease > 5:
-             st.info("Nguy cơ trung bình. Cần duy trì lối sống lành mạnh.", icon="✨")
-        else:
-             st.success("Nguy cơ thấp.", icon="✅")
+        with col_res1:
+            st.metric(label="Tỷ lệ nguy cơ", value=f"{risk_percent:.1f}%")
+        
+        with col_res2:
+            if risk_percent > 50:
+                st.error("🚨 CẢNH BÁO: Nguy cơ RẤT CAO. Cần tham khảo ý kiến bác sĩ!")
+            elif risk_percent > 20:
+                st.warning("⚠️ CẢNH BÁO: Nguy cơ CAO. Cần tầm soát sức khỏe kỹ lưỡng.")
+            else:
+                st.success("✅ AN TOÀN: Nguy cơ thấp. Hãy tiếp tục duy trì lối sống lành mạnh.")
+                
+    except Exception as e:
+        st.error(f"Có lỗi xảy ra: {e}")
