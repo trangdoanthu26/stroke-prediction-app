@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import plotly.graph_objects as go # <--- 1. THÊM DÒNG NÀY
+import plotly.graph_objects as go
 
 # --- 2. THÊM HÀM VẼ BIỂU ĐỒ NÀY VÀO (Đặt trước hàm load_model) ---
 def create_gauge_chart(risk_score):
@@ -251,3 +251,4 @@ if st.button("🔍 PHÂN TÍCH NGAY", type="primary"):
                 
         except Exception as e:
             st.error(f"Có lỗi xảy ra khi dự báo: {e}")
+
